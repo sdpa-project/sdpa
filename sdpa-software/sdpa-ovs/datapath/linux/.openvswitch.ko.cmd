@@ -1,0 +1,1 @@
+cmd_/home/zzl/ovs/datapath/linux/openvswitch.ko := ld -r -m elf_i386 -T /usr/src/linux-headers-3.11.0-12-generic/scripts/module-common.lds --build-id  -o /home/zzl/ovs/datapath/linux/openvswitch.ko /home/zzl/ovs/datapath/linux/openvswitch.o /home/zzl/ovs/datapath/linux/openvswitch.mod.o
