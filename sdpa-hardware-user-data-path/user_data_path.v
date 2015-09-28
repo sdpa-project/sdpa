@@ -45,6 +45,7 @@
  * Odd numbered ports are CPU ports corresponding to
  * IO sinks/sources to rpovide direct access to them
  ******************************************************/
+`include "onet_defines.v"
 module user_data_path
   #(parameter DATA_WIDTH = 64,
     parameter CTRL_WIDTH=DATA_WIDTH/8,

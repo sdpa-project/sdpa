@@ -10,7 +10,22 @@
 `define CORE_REG_ADDR_WIDTH   22
 `define UDP_REG_ADDR_WIDTH    23
 
+`define REG_APP1_ST_TAG       13'h2
+`define REG_APP1_STT_TAG      13'h3
+`define REG_APP1_AT_TAG       13'h4
+`define REG_APP2_ST_TAG       13'h5
+`define REG_APP2_STT_TAG      13'h6
+`define REG_APP2_AT_TAG       13'h7
+`define REG_APP3_ST_TAG       13'h8
+`define REG_APP3_STT_TAG      13'h9
+`define REG_APP3_AT_TAG       13'ha
+`define REG_HP_TAG            13'hc
+`define REG_HP_PARAM_POS_ADDR 10'h10
+`define REG_LOOKUP_BLOCK_ADDR 13'hb
 
+`define REG_ACTION_1_TAG      13'hd
+`define REG_ACTION_2_TAG      13'he
+`define REG_ACTION_3_TAG      13'hf
 
 `define MAC_QUEUE_0_BLOCK_ADDR  4'h8
 `define MAC_QUEUE_1_BLOCK_ADDR  4'h9
@@ -113,7 +128,7 @@
 `define OPENFLOW_WILDCARD_LOOKUP_BLOCK_ADDR        13'h0001
 
 //basic
-`define OPENFLOW_WILDCARD_TABLE_SIZE              8
+`define OPENFLOW_WILDCARD_TABLE_SIZE              32
 
 
 //Flow entry
@@ -166,27 +181,14 @@
 `define NF2_OFPAT_SET_NW_TOS                      16'h0100
 `define NF2_OFPAT_SET_TP_SRC                      16'h0200
 `define NF2_OFPAT_SET_TP_DST                      16'h0400
-//Add for FW
-`define NF2_OFPAT_GO_TO_FP							     16'h0800
 
+
+// SFA MACROS
 `define STATE_TABLE_ENTRY_WIDTH						   104
 `define TCP_STATE_WIDTH								      8
-`define STATE_TABLE_SIZE							      8
-`define STATE_TABLE_LOOKUP_REG_ADDR_WIDTH			   10
-`define STATE_TABLE_LOOKUP_1_BLOCK_ADDR				   13'h0002
-`define STATE_TABLE_LOOKUP_2_BLOCK_ADDR          13'h0003
-`define STATE_TABLE_LOOKUP_3_BLOCK_ADDR          13'h0004
+`define EVENT_PARAM_WIDTH                   32
+`define STATE_TABLE_LOOKUP_REG_ADDR_WIDTH   10
 
-
-//Action table for state_lookup_app3: NAT
-`define AT_SRC_POS                     32
-`define AT_SRC_WIDTH                   32
-
-`define AT_DST_POS                     0
-`define AT_DST_WIDTH                   32
-
-`define AT_MOD_SRC_POS                 65
-`define AT_MOD_DST_POS                 64
 
 
 // Ports to forward on
@@ -247,10 +249,15 @@
 `define IP_PROTO_ICMP                             8'h01
 
 
+/* Action Table Entry Lookup */
+`define AT_ACTION_FLAG_WIDTH                       16
+`define AT_ACTION_FLAG_POS                         0
 
+`define AT_ACTION_PARAM_WIDTH                      320
+`define AT_ACTION_PARAM_POS                        16
 
-
-
+`define AT_NEXT_APP_WIDTH                          2
+`define AT_NEXT_APP_POS                            336  
 
  /* Common Functions */
 `define LOG2_FUNC \

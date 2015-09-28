@@ -9,6 +9,7 @@
 //              that always receive small packets since they pile up!
 //
 ///////////////////////////////////////////////////////////////////////////////
+`include "onet_defines.v"
 `timescale 1ns/1ps
   module input_arbiter
     #(parameter DATA_WIDTH = 64,

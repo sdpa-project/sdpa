@@ -7,6 +7,8 @@
 // Description: Demultiplexes, stores and serves register requests
 //
 ///////////////////////////////////////////////////////////////////////////////
+
+`include "onet_defines.v"
 `timescale 1ns/1ps
 
   module in_arb_regs

@@ -8,6 +8,7 @@
 //              are multiple ones, it only uses the first one it finds.
 //
 ///////////////////////////////////////////////////////////////////////////////
+`include "onet_defines.v"
 
   module vlan_adder
     #(parameter DATA_WIDTH = 64,

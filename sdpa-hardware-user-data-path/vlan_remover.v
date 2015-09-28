@@ -6,6 +6,7 @@
 // Author: Jad Naous <jnaous@stanford.edu>
 // Description: removes the VLAN info if existing and puts it in a module header.
 ///////////////////////////////////////////////////////////////////////////////
+`include "onet_defines.v"
 
   module vlan_remover
     #(parameter DATA_WIDTH = 64,

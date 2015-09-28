@@ -8,7 +8,7 @@
 // robin arbiter to service the output queues
 //
 ///////////////////////////////////////////////////////////////////////////////
-
+`include "onet_defines.v"
   module output_queues
     #(parameter DATA_WIDTH = 64,
       parameter CTRL_WIDTH=DATA_WIDTH/8,

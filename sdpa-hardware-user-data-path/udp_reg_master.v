@@ -14,6 +14,7 @@
 //         loop complete && !ack_in -> deadbeef
 //
 ///////////////////////////////////////////////////////////////////////////////
+`include "onet_defines.v"
 
 module udp_reg_master
    #(

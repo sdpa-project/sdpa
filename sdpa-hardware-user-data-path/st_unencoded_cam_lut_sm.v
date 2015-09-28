@@ -16,9 +16,9 @@
 `include "onet_defines.v"
   module st_unencoded_cam_lut_sm
     #(
-      parameter DATA_WIDTH = 8,
-      parameter CMP_WIDTH = 104,
-      parameter LUT_DEPTH  = 64,
+      parameter DATA_WIDTH = 32,
+      parameter CMP_WIDTH = 64,
+      parameter LUT_DEPTH  = 16,
       parameter LUT_DEPTH_BITS = log2(LUT_DEPTH),
       parameter DEFAULT_DATA = 0,                       // DATA to return on a miss
       parameter RESET_DATA = {DATA_WIDTH{1'b0}},        // value of data on reset
@@ -26,10 +26,13 @@
       parameter RESET_CMP_DMASK = {CMP_WIDTH{1'b0}},    // value compare of data mask on reset
       parameter UDP_REG_SRC_WIDTH = 2,                  // identifies which module started this request
       parameter TAG = 0,                                // Tag identifying the address block
-      parameter REG_ADDR_WIDTH = 5                      // Width of addresses in the same block
+      parameter REG_ADDR_WIDTH = 5,                      // Width of addresses in the same block
+
+      // --- Debug interface
+      parameter DEFAULT_CMP_DATA=248'h0,
+      parameter DEFAULT_LOOKUP_DATA=8'h0
       )
    (// --- Interface for lookups
-    input 							         lookup_data_vld,
     input                              lookup_req,
     input      [CMP_WIDTH-1:0]         lookup_cmp_data,
     input      [CMP_WIDTH-1:0]         lookup_cmp_dmask,
@@ -37,14 +40,15 @@
     output reg                         lookup_hit,
     output     [DATA_WIDTH-1:0]        lookup_data,
     output reg [LUT_DEPTH_BITS-1:0]    lookup_address,
-	// Add for FW
-	input									add_state_entry,
-	output reg								state_lookup_result,
-	input 									is_ACK,
-	input 									is_RST,
-	input 									is_SYN,
-	input 									is_FIN,
-	
+
+    // --- Interface for state update
+    input     [DATA_WIDTH-1:0]         next_state,
+    input                              next_state_vld,
+    input     [LUT_DEPTH_BITS-1:0]     update_addr,
+    input                              update_req,
+
+    output reg                         update_done,
+
     // --- Interface to registers
     input                                  reg_req_in,
     input                                  reg_ack_in,
@@ -122,29 +126,12 @@
    localparam WAIT_FOR_REQUEST = 1;
    localparam WAIT_FOR_READ_ACK = 2;
    localparam WAIT_FOR_WRITE_ACK = 4;
-   
-   localparam CLOSED			= 8'b00000001;
-   localparam SYN				= 8'b00000011;
-   localparam SYN_ACK			= 8'b00000111;
-   localparam ESTABLISHED		= 8'b00001111;
-   localparam FIN_WAIT1			= 8'b00011111;
-   localparam FIN_WAIT2			= 8'b00111111;
-   localparam CLOSING0			= 8'b01111111;
-   localparam CLOSING1			= 8'b11111111;
-
-   localparam WRITE0			= 1;
-   localparam WRITE1			= 2;
-   localparam WRITE2			= 3;
-   localparam WRITE3			= 4;
-   localparam WRITE4			= 5;
 
    //---------------------- Wires and regs----------------------------
    reg [LUT_DEPTH_BITS-1:0]              lut_rd_addr;
    reg [DATA_WIDTH+2*CMP_WIDTH-1:0]      lut_rd_data;
    reg [DATA_WIDTH-1:0]                  lut_wr_data;
 
-   reg [LUT_DEPTH_BITS-1:0]					lut_new_addr;
-   
    reg [DATA_WIDTH+2*CMP_WIDTH-1:0]      lut[LUT_DEPTH-1:0];
 
    reg                                   lookup_latched;
@@ -157,35 +144,6 @@
    reg [LUT_DEPTH-1:0]                   cam_match_unencoded_addr;
 
    reg [LUT_DEPTH_BITS-1:0]              cam_match_encoded_addr;
-   
-   // Add for FW
-   reg									lookup_ack_held;
-   reg									lookup_hit_held;
-   reg [DATA_WIDTH+2*CMP_WIDTH-1:0]		lut_rd_data_held;
-   reg [LUT_DEPTH_BITS-1:0]				lookup_address_held;
-   reg 									rd_ack_held;
-   
-   reg [DATA_WIDTH-1:0]					current_tcp_state;
-   reg [LUT_DEPTH_BITS-1:0]				update_addr0;
-   reg [LUT_DEPTH_BITS-1:0]				update_addr1;
-//   wire [2*CMP_WIDTH-1:0]				lut_update_data0;
-//   wire [2*CMP_WIDTH-1:0]				lut_update_data1;
-   reg [2:0]							write_state;
-	reg [CMP_WIDTH-1:0]         		lookup_cmp_data_held;
-	reg									delete_entry0;
-	reg									delete_entry1;
-	reg [LUT_DEPTH_BITS-1:0]			delete_addr0;
-	reg [LUT_DEPTH_BITS-1:0]			delete_addr1;
-	
-	reg									is_SYN_held;
-	reg									is_ACK_held;
-	reg									is_RST_held;
-	reg									is_FIN_held;
-	
-	reg									pass_directly0;
-	reg									pass_directly1;
-	reg									pass_directly2;
-	reg									pass_directly;
    // synthesis attribute PRIORITY_EXTRACT of cam_match_encoded_addr is force;
 
    /* used to track the addresses for resetting the CAM and the LUT */
@@ -218,6 +176,12 @@
    wire [CMP_WIDTH-1:0]                  wr_cmp_dmask;     // don't cares for the entry
    reg                                   wr_ack;
 
+   // ------------------------ Entry Update -------------------------
+
+   wire [LUT_DEPTH_BITS-1:0]              update_addr0,update_addr1;
+
+   reg                                    update_done_d1;
+
    //------------------------- Logic --------------------------------
 
    assign cam_cmp_din       = lookup_cmp_data;
@@ -225,20 +189,19 @@
 
    assign lookup_data       = (lookup_hit & lookup_ack) ? lut_rd_data[DATA_WIDTH-1:0] : DEFAULT_DATA;
 
-//   assign current_tcp_state = lut_rd_data_held[DATA_WIDTH-1:0];
-//   assign lut_update_data0  = lut[update_addr0][DATA_WIDTH+2*CMP_WIDTH-1:DATA_WIDTH];
-//   assign lut_update_data1  = lut[update_addr1][DATA_WIDTH+2*CMP_WIDTH-1:DATA_WIDTH];
-   
    assign rd_data           = lut_rd_data[DATA_WIDTH-1:0];
    assign rd_cmp_data       = lut_rd_data[DATA_WIDTH+CMP_WIDTH-1:DATA_WIDTH];
    assign rd_cmp_dmask      = lut_rd_data[DATA_WIDTH+2*CMP_WIDTH-1:DATA_WIDTH+CMP_WIDTH];
 
 
-   assign addr                  = reg_addr_in;                        // addresses in this module
-   assign tag_addr              = reg_addr_in[`UDP_REG_ADDR_WIDTH - 1:REG_ADDR_WIDTH];
+   assign addr              = reg_addr_in;                        // addresses in this module
+   assign tag_addr          = reg_addr_in[`UDP_REG_ADDR_WIDTH - 1:REG_ADDR_WIDTH];
 
-   assign addr_good             = addr < NUM_REGS_USED;   // address is used in this module
-   assign tag_hit               = tag_addr == TAG;        // address is in this block
+   assign addr_good         = addr < NUM_REGS_USED;   // address is used in this module
+   assign tag_hit           = tag_addr == TAG;        // address is in this block
+
+   assign update_addr0      = {update_addr[LUT_DEPTH_BITS-1:1],1'b0};
+   assign update_addr1      = {update_addr[LUT_DEPTH_BITS-1:1],1'b1};
 
    generate
       genvar ii;
@@ -419,21 +382,6 @@
       end
    endgenerate
 
-   //Add for FW
-	always @(*) begin
-		update_addr0 = {lookup_address_held[LUT_DEPTH_BITS-1:1],1'b0};
-		update_addr1 = {lookup_address_held[LUT_DEPTH_BITS-1:1],1'b1};
-	end
-
-	always @(posedge clk) begin
-		if(lookup_data_vld) begin
-			is_SYN_held <= is_SYN;
-			is_ACK_held <= is_ACK;
-			is_FIN_held <= is_FIN;
-			is_RST_held <= is_RST;
-		end
-	end
-   
    always @(posedge clk) begin
 
       if(reset || table_flush) begin
@@ -441,7 +389,6 @@
          cam_match_found             <= 0;
          cam_lookup_done             <= 0;
          rd_req_latched              <= 0;
-		 lookup_ack_held			 <= 0;
          lookup_ack                  <= 0;
          lookup_hit                  <= 0;
          cam_we                      <= 0;
@@ -456,8 +403,6 @@
          cam_match_unencoded_addr    <= 0;
          cam_match_encoded           <= 0;
          cam_match_found_d1          <= 0;
-		 lut_new_addr				<= 0;
-		 write_state				<= WRITE0;
       end // if (reset)
       else begin
 
@@ -473,15 +418,7 @@
          cam_data_mask      <= 0;
          wr_ack             <= 0;
          rd_ack             <= 0;
-		 lookup_ack_held    <= 0;
-		 lookup_hit_held    <= 0;
-		 rd_ack_held		<= 0;
-		 state_lookup_result<= 0;
-		 pass_directly0		<= 0;
-		 pass_directly1		<= 0;
-		 pass_directly2		<= 0;
-		 pass_directly		<= 0;
-		 
+
          if (state == RESET && !cam_busy) begin
             if(reset_count == LUT_DEPTH) begin
                state  <= READY;
@@ -491,201 +428,55 @@
                reset_count      <= reset_count + 1'b1;
                cam_we           <= 1'b1;
                cam_wr_addr      <= reset_count[LUT_DEPTH_BITS-1:0];
-               cam_din          <= RESET_CMP_DATA;
                cam_data_mask    <= RESET_CMP_DMASK;
-               lut_wr_data      <= RESET_DATA;
+
+               if(reset_count == 1) begin
+                  // ---- Debug 
+                 cam_din           <= DEFAULT_CMP_DATA;
+                 lut_wr_data       <= DEFAULT_LOOKUP_DATA;
+               end
+               else begin
+                  cam_din          <= RESET_CMP_DATA;
+                  lut_wr_data      <= RESET_DATA;
+               end
+
             end
          end
 
          else if (state == READY) begin
             /* first pipeline stage -- do CAM lookup */
-            lookup_latched                <= lookup_req & lookup_data_vld;
-            pass_directly0				      <= lookup_data_vld & !lookup_req &!add_state_entry;
+            lookup_latched              <= lookup_req;
 
             /* second pipeline stage -- CAM result/LUT input*/
-            cam_match_found               <= lookup_latched & cam_match;
-            cam_lookup_done               <= lookup_latched;
-            cam_match_unencoded_addr      <= cam_match_addr;
-            pass_directly1				      <= pass_directly0;
+            cam_match_found             <= lookup_latched & cam_match;
+            cam_lookup_done             <= lookup_latched;
+            cam_match_unencoded_addr    <= cam_match_addr;
 
             /* third pipeline stage -- encode the CAM output */
-            cam_match_encoded             <= cam_lookup_done;
-            cam_match_found_d1            <= cam_match_found;
-            lut_rd_addr                   <= (!cam_match_found && rd_req) ? rd_addr : cam_match_encoded_addr;
-            rd_req_latched                <= (!cam_match_found && rd_req);
-            pass_directly2				      <= pass_directly1;
+            cam_match_encoded           <= cam_lookup_done;
+            cam_match_found_d1          <= cam_match_found;
+            lut_rd_addr                 <= (!cam_match_found && rd_req) ? rd_addr : cam_match_encoded_addr;
+            rd_req_latched              <= (!cam_match_found && rd_req);
 
             /* fourth pipeline stage -- read LUT */
-            lookup_ack_held               <= cam_match_encoded;
-            lookup_hit_held               <= cam_match_found_d1;
-            lut_rd_data_held              <= lut[lut_rd_addr];
-            current_tcp_state			      <= (cam_match_found_d1) ? lut[lut_rd_addr][DATA_WIDTH-1:0] : 8'h00;
-            lookup_address_held           <= lut_rd_addr;
-            rd_ack_held                   <= rd_req_latched;
-            pass_directly				      <= pass_directly2;
-			
-			//Add for FW
-			/* fifth pipeline stage -- update TCP state */
-			lookup_ack					<= lookup_ack_held || pass_directly;
-			lookup_hit					<= lookup_hit_held;
-			lut_rd_data					<= lut_rd_data_held;
-			lookup_address				<= lookup_address_held;
-			rd_ack						<= rd_ack_held;
-			
-			if(pass_directly)begin
-				state_lookup_result		<= 1;
-			end
-			
-			if(lookup_ack_held & lookup_hit_held) begin
-				if(is_RST_held)begin
-					lut[update_addr0] <= {lut[update_addr0][DATA_WIDTH+2*CMP_WIDTH-1:DATA_WIDTH],CLOSED};
-					lut[update_addr1] <= {lut[update_addr1][DATA_WIDTH+2*CMP_WIDTH-1:DATA_WIDTH],CLOSED};
-					state_lookup_result <= 1;
-				end
-				else begin //if(!iS_RST)
-					case (current_tcp_state)
-						CLOSED:begin
-							if(is_SYN_held & !is_ACK_held & !is_FIN_held)begin
-								lut[update_addr0] <= {lut[update_addr0][DATA_WIDTH+2*CMP_WIDTH-1:DATA_WIDTH],SYN};
-								lut[update_addr1] <= {lut[update_addr1][DATA_WIDTH+2*CMP_WIDTH-1:DATA_WIDTH],SYN};
-								state_lookup_result <= 1;
-							end
-						end
-						SYN:begin
-							if(is_SYN_held & is_ACK_held & !is_FIN_held) begin
-								lut[update_addr0] <= {lut[update_addr0][DATA_WIDTH+2*CMP_WIDTH-1:DATA_WIDTH],SYN_ACK};
-								lut[update_addr1] <= {lut[update_addr1][DATA_WIDTH+2*CMP_WIDTH-1:DATA_WIDTH],SYN_ACK};
-								state_lookup_result <= 1;
-							end
-						end
-						SYN_ACK:begin
-							if(is_ACK_held & !is_SYN_held & !is_FIN_held)begin
-								lut[update_addr0] <= {lut[update_addr0][DATA_WIDTH+2*CMP_WIDTH-1:DATA_WIDTH],ESTABLISHED};
-								lut[update_addr1] <= {lut[update_addr1][DATA_WIDTH+2*CMP_WIDTH-1:DATA_WIDTH],ESTABLISHED};
-								state_lookup_result <= 1;
-							end
-						end
-						ESTABLISHED:begin
-							if(!is_SYN_held & !is_ACK_held)begin
-								state_lookup_result <= 1;
-								if(is_FIN_held)begin
-									lut[update_addr0] <= {lut[update_addr0][DATA_WIDTH+2*CMP_WIDTH-1:DATA_WIDTH],FIN_WAIT1};
-									lut[update_addr1] <= {lut[update_addr1][DATA_WIDTH+2*CMP_WIDTH-1:DATA_WIDTH],FIN_WAIT1};
-								end
-							end
-						end
-						FIN_WAIT1:begin
-							if(!is_SYN_held) begin
-								state_lookup_result <= 1;
-								if(is_FIN_held & is_ACK_held) begin
-									lut[update_addr0] <= {lut[update_addr0][DATA_WIDTH+2*CMP_WIDTH-1:DATA_WIDTH],CLOSING1};
-									lut[update_addr1] <= {lut[update_addr1][DATA_WIDTH+2*CMP_WIDTH-1:DATA_WIDTH],CLOSING1};
-								end
-								else if(is_FIN_held & !is_ACK_held) begin
-									lut[update_addr0] <= {lut[update_addr0][DATA_WIDTH+2*CMP_WIDTH-1:DATA_WIDTH],CLOSING0};
-									lut[update_addr1] <= {lut[update_addr1][DATA_WIDTH+2*CMP_WIDTH-1:DATA_WIDTH],CLOSING0};
-								end
-								else if(!is_FIN_held & is_ACK_held) begin
-									lut[update_addr0] <= {lut[update_addr0][DATA_WIDTH+2*CMP_WIDTH-1:DATA_WIDTH],FIN_WAIT2};
-									lut[update_addr1] <= {lut[update_addr1][DATA_WIDTH+2*CMP_WIDTH-1:DATA_WIDTH],FIN_WAIT2};
-								end
-							end
-						end
-						FIN_WAIT2:begin
-							if(!is_SYN_held & !is_ACK_held)begin
-								state_lookup_result <= 1;
-								if(is_FIN_held)begin
-									lut[update_addr0] <= {lut[update_addr0][DATA_WIDTH+2*CMP_WIDTH-1:DATA_WIDTH],CLOSING1};
-									lut[update_addr1] <= {lut[update_addr1][DATA_WIDTH+2*CMP_WIDTH-1:DATA_WIDTH],CLOSING1};
-								end
-							end
-						end
-						CLOSING0:begin
-							if(is_ACK_held & !is_SYN_held & !is_FIN_held)begin
-								lut[update_addr0] <= {lut[update_addr0][DATA_WIDTH+2*CMP_WIDTH-1:DATA_WIDTH],CLOSING1};
-								lut[update_addr1] <= {lut[update_addr1][DATA_WIDTH+2*CMP_WIDTH-1:DATA_WIDTH],CLOSING1};
-								state_lookup_result <= 1;
-							end
-						end
-						CLOSING1:begin
-							if(is_ACK_held & !is_FIN_held & !is_SYN_held)begin
-								state_lookup_result <= 1;
-								delete_entry0		<= 1;
-								delete_addr0		<= update_addr0;
-								delete_addr1		<= update_addr1;
-							end
-						end
-						default:begin
-							state_lookup_result <= 0;
-						end
-					endcase
-				end // if(is_RST)
-			end //if(rd_ack_held)
-			if(delete_entry0)begin
-				cam_we				<= 1'b1;
-				cam_wr_addr			<= delete_addr0;
-				cam_din          	<= RESET_CMP_DATA;
-				cam_data_mask    	<= RESET_CMP_DMASK;
-				lut_wr_data      	<= RESET_DATA;
-				delete_entry0		<= 0;
-				delete_entry1		<= 1;
-			end
-			else if(delete_entry1)begin
-				cam_we				<= 1'b1;
-				cam_wr_addr			<= delete_addr1;
-				cam_din          	<= RESET_CMP_DATA;
-				cam_data_mask    	<= RESET_CMP_DMASK;
-				lut_wr_data      	<= RESET_DATA;
-				delete_entry1		<= 0;
-			end
-			
+            lookup_ack                  <= cam_match_encoded;
+            lookup_hit                  <= cam_match_found_d1;
+            lut_rd_data                 <= lut[lut_rd_addr];
+            lookup_address              <= lut_rd_addr;
+            rd_ack                      <= rd_req_latched;
+
             /* Handle writes */
-			if((add_state_entry & !cam_busy & is_SYN & !is_ACK & !is_RST & !is_FIN ) || write_state != WRITE0)begin
-				case(write_state)
-					WRITE0:begin
-						lookup_cmp_data_held <= lookup_cmp_data;
-						write_state		<= WRITE1;
-					end
-					WRITE1:begin
-						write_state		<= WRITE2;
-					end
-					WRITE2:begin
-						write_state		<= WRITE3;
-					end
-					WRITE3:begin
-						if(!cam_match_found_d1)begin
-							cam_we			<= 1;
-							cam_wr_addr		<= lut_new_addr;
-							cam_din			<= lookup_cmp_data_held;
-							cam_data_mask	<= {CMP_WIDTH{1'b0}};
-							lut_wr_data		<= SYN;
-							lut_new_addr	<= lut_new_addr + 1'b1;
-						end
-						write_state		<= WRITE4;
-					end
-					default:begin
-						if(!lookup_hit_held)begin
-							cam_we			<= 1;
-							cam_wr_addr		<= lut_new_addr;
-							cam_din			<= {lookup_cmp_data_held[71:40],lookup_cmp_data_held[103:72],lookup_cmp_data_held[39:32],
-												lookup_cmp_data_held[15:0],lookup_cmp_data_held[31:16]};
-							cam_data_mask	<= {CMP_WIDTH{1'b0}};
-							lut_wr_data		<= SYN;
-							lut_new_addr	<= lut_new_addr + 1'b1;
-							state_lookup_result <= 1;
-						end
-						write_state		<= WRITE0;
-						lookup_ack		<= 1;
-					end
-				endcase
-			end
-            else if(wr_req & !cam_busy & !lookup_latched & !cam_match_found & !cam_match_found_d1 & !lookup_hit_held) begin
+            if(wr_req & !cam_busy & !lookup_latched & !cam_match_found & !cam_match_found_d1) begin
                cam_we           <= 1;
                cam_wr_addr      <= wr_addr;
                cam_din          <= wr_cmp_data ;
                cam_data_mask    <= wr_cmp_dmask;
                wr_ack           <= 1;
                lut_wr_data      <= wr_data;
+            end
+            else begin
+               cam_we <= 0;
+               wr_ack <= 0;
             end // else: !if(wr_req & !cam_busy & !lookup_latched & !cam_match_found & !cam_match_found_d1)
          end // else: !if(state == RESET)
 
@@ -697,6 +488,28 @@
       end
 
    end // always @ (posedge clk)
+
+   // -------------------------- Handle Entry Update -------------------
+
+   always @(posedge clk) begin
+     if (update_req) begin
+       update_done       <= 1;
+
+       if (next_state_vld) begin
+            lut[update_addr0] <= {lut[update_addr0][DATA_WIDTH+2*CMP_WIDTH-1:DATA_WIDTH],next_state};
+            lut[update_addr1] <= {lut[update_addr1][DATA_WIDTH+2*CMP_WIDTH-1:DATA_WIDTH],next_state};
+       end
+       else begin
+            lut[update_addr0] <= lut[update_addr0];
+            lut[update_addr1] <= lut[update_addr1];
+       end       
+     end
+     else begin
+        update_done     <=  0;
+     end
+
+   end
+
 
 endmodule // cam_lut_sm
 

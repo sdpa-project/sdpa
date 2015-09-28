@@ -63,29 +63,51 @@
       parameter ADDITIONAL_WORD_POS  = 224,
       parameter ADDITIONAL_WORD_CTRL = 8'h40,
       parameter ADDITIONAL_WORD_DEFAULT = 16'hffff,
-      parameter FLOW_ENTRY_SIZE = 240
+      parameter FLOW_ENTRY_SIZE = 240,
+      parameter TAG=`REG_HP_TAG,
+      parameter UDP_REG_SRC_WIDTH = 2,                   // identifies which module started this request
+      parameter REG_ADDR_WIDTH = 10,
+      parameter PARAM_POS_ADDR = 10'h20
       )
    (// --- Interface to the previous stage
     input  [DATA_WIDTH-1:0]                in_data,
     input  [CTRL_WIDTH-1:0]                in_ctrl,
     input                                  in_wr,
 
+    // --- Interface to registers
+    input                                  reg_req_in,
+    input                                  reg_ack_in,
+    input                                  reg_rd_wr_L_in,
+    input  [`UDP_REG_ADDR_WIDTH-1:0]       reg_addr_in,
+    input  [`CPCI_NF2_DATA_WIDTH-1:0]      reg_data_in,
+    input  [UDP_REG_SRC_WIDTH-1:0]         reg_src_in,
+
+    output reg                                 reg_req_out,
+    output reg                                 reg_ack_out,
+    output reg                                 reg_rd_wr_L_out,
+    output reg     [`UDP_REG_ADDR_WIDTH-1:0]   reg_addr_out,
+    output reg     [`CPCI_NF2_DATA_WIDTH-1:0]  reg_data_out,
+    output reg     [UDP_REG_SRC_WIDTH-1:0]     reg_src_out,
+
     // --- Interface to matchers
     output reg [`OPENFLOW_ENTRY_WIDTH-1:0]           flow_entry,
     output [`OPENFLOW_ENTRY_SRC_PORT_WIDTH-1:0] flow_entry_src_port,
     output reg [PKT_SIZE_WIDTH-1:0]        pkt_size,
     output reg                             flow_entry_vld,
+
+    // --- Interface to APP Event parameters
+    output reg [`EVENT_PARAM_WIDTH-1:0]   event_param_1,
+    output reg [`EVENT_PARAM_WIDTH-1:0]   event_param_2,
+    output reg [`EVENT_PARAM_WIDTH-1:0]   event_param_3,
+
 	//Add for FW
-	output reg								is_ACK,
-	output reg								is_RST,
-	output reg								is_SYN,
-	output reg								is_FIN,
-	output reg								is_tcp,
-   output reg                       is_udp,
-   
-   //output reg                       is_dns_query,
-   //output reg                       is_dns_response,
-   output reg [15:0]                query_id,
+    output reg								is_ACK,
+    output reg								is_RST,
+    output reg								is_SYN,
+    output reg								is_FIN,
+    output reg								is_tcp,
+    output reg                       is_udp,
+    output reg [15:0]                query_id,
 	
     // --- Misc
     input                                  reset,
@@ -110,6 +132,9 @@
               ARP_DST_LO_WORD               = 6;
 
 
+    localparam FLOW_ENTRY_WORD_USED         = 8;
+
+
    //---------------------- Wires/Regs -------------------------------
    reg [1:0]                            state;
    reg [3:0]                            counter;
@@ -124,6 +149,25 @@
 
    wire [FLOW_ENTRY_SIZE-1:0]           flow_entry_default;
 
+   /* Registers */
+   wire [`UDP_REG_ADDR_WIDTH-REG_ADDR_WIDTH-1:0] tag_addr;
+   wire [REG_ADDR_WIDTH-1:0]             addr;
+   wire                                  tag_hit;
+   wire                                  addr_good;
+
+
+   /* Reconfigurable Event param extraction register */
+   reg [31:0]                            param_pos;
+   wire [4:0]                            param_pos_1;
+   wire [4:0]                            param_pos_2;
+   wire [4:0]                            param_pos_3;
+
+   reg  [3:0]                            param_counter;
+
+   /* Regs for debuging the header parser */
+   reg [`CPCI_NF2_DATA_WIDTH-1:0]        reg_file[0:FLOW_ENTRY_WORD_USED-1];
+   integer                               i;
+
    //------------------------ Logic ----------------------------------
    assign flow_entry_src_port = flow_entry[`OPENFLOW_ENTRY_SRC_PORT_POS + `OPENFLOW_ENTRY_SRC_PORT_WIDTH - 1 : `OPENFLOW_ENTRY_SRC_PORT_POS];
    generate
@@ -133,6 +177,156 @@
    endgenerate
    assign flow_entry_default[ADDITIONAL_WORD_POS+ADDITIONAL_WORD_SIZE-1:ADDITIONAL_WORD_POS] = ADDITIONAL_WORD_DEFAULT;
    assign flow_entry_default[ADDITIONAL_WORD_POS-1:0]                                        = 0;
+
+   assign addr                  = reg_addr_in[REG_ADDR_WIDTH-1:0];
+   assign tag_addr              = reg_addr_in[`UDP_REG_ADDR_WIDTH - 1:REG_ADDR_WIDTH];
+   assign tag_hit               = tag_addr == TAG;        // address is in this block
+   assign addr_good             = (addr == PARAM_POS_ADDR)|(addr < FLOW_ENTRY_WORD_USED);
+
+   assign param_pos_1 = param_pos[4:0];
+   assign param_pos_2 = param_pos[9:5];
+   assign param_pos_3 = param_pos[14:10];
+
+   /* regs for debugging the header parser */
+   always @(posedge clk or posedge reset) begin
+     if (reset) begin
+        for (i=0; i<FLOW_ENTRY_WORD_USED; i=i+1) begin
+          reg_file[i] <= 0;
+        end
+     end
+     else if (flow_entry_vld) begin
+        for (i=0; i<FLOW_ENTRY_WORD_USED-1; i=i+1) begin
+          reg_file[i] <= flow_entry[i*`CPCI_NF2_DATA_WIDTH +: `CPCI_NF2_DATA_WIDTH];
+        end       
+        reg_file[FLOW_ENTRY_WORD_USED-1] <= flow_entry[`OPENFLOW_ENTRY_WIDTH-1:(FLOW_ENTRY_WORD_USED-1)*`CPCI_NF2_DATA_WIDTH];
+     end
+   end
+
+
+   /* handle registers */
+   always @(posedge clk or posedge reset) begin
+     if (reset) begin
+        reg_req_out     <= 0;
+        reg_ack_out     <= 0;
+        reg_rd_wr_L_out <= 0;
+        reg_addr_out    <= 0;
+        reg_data_out    <= 0;
+        reg_src_out     <= 0;
+
+        param_pos       <= {17'h0,5'h1,5'h2,5'h3};
+     end
+     else begin
+       if (tag_hit && addr_good && reg_req_in) begin
+
+          
+          reg_req_out     <= reg_req_in;
+          reg_addr_out    <= reg_addr_in;
+          reg_rd_wr_L_out <= reg_rd_wr_L_in;
+          reg_src_out     <= reg_src_in;         
+
+          if (!reg_rd_wr_L_in) begin
+              //if write
+              if (addr==PARAM_POS_ADDR) begin
+                param_pos  <=  reg_data_in;
+                reg_data_out    <= reg_data_in;   
+                reg_ack_out  <=  1;            
+              end
+              else begin
+              // if write to flow entry regs, not allowed
+                reg_ack_out  <=   0;
+              end
+           end
+
+           else begin
+              //if read
+              reg_ack_out   <=  1;
+              if(addr==PARAM_POS_ADDR) begin
+                reg_data_out    <= param_pos;                
+              end
+              else begin
+                reg_data_out    <= reg_file[addr];
+              end
+           end
+       end
+       
+       else begin
+          param_pos       <= param_pos;
+
+          reg_req_out     <= reg_req_in;
+          reg_ack_out     <= reg_ack_in;
+          reg_rd_wr_L_out <= reg_rd_wr_L_in;
+          reg_addr_out    <= reg_addr_in;
+          reg_data_out    <= reg_data_in;
+          reg_src_out     <= reg_src_in;
+       end
+
+     end
+   end
+
+   /* handle parameter counter */
+   always @(posedge clk or posedge reset) begin
+     if (reset) begin
+       param_counter  <= 0;       
+     end
+     else begin
+
+       if (in_ctrl==8'hff) begin
+         param_counter  <=  0;
+       end
+       else begin
+        param_counter   <= param_counter +1;
+       end
+
+     end
+   end
+
+   /* extract the event params */
+   always @(posedge clk or posedge reset) begin
+     if (reset) begin
+       event_param_1  <= 0;       
+       event_param_2  <= 0;       
+       event_param_3  <= 0;       
+     end
+     else begin
+       
+       if (param_counter == param_pos_1[4:1]) begin
+         if (param_pos_1[0]) begin
+           event_param_1  <= in_data[31:0];
+         end
+         else begin
+           event_param_1  <= in_data[63:32];
+         end
+       end
+       else begin
+         event_param_2  <=  event_param_2;
+       end
+
+       if (param_counter == param_pos_2[4:1]) begin
+         if (param_pos_2[0]) begin
+           event_param_2  <= in_data[31:0];
+         end
+         else begin
+           event_param_2  <= in_data[63:32];
+         end
+       end
+       else begin
+         event_param_2  <=  event_param_2;
+       end
+
+       if (param_counter == param_pos_3[4:1]) begin
+         if (param_pos_3[0]) begin
+           event_param_3  <= in_data[31:0];
+         end
+         else begin
+           event_param_3  <= in_data[63:32];
+         end
+       end
+       else begin
+         event_param_3  <=  event_param_3;
+       end
+
+     end
+   end
 
    /* This state machine parses the header */
    always @(posedge clk) begin
@@ -148,6 +342,15 @@
          is_icmp           <= 0;
          is_vlan           <= 0;
          ip_hdr_len        <= 0;
+
+         is_arp             <= 0;
+         query_id           <= 0;
+         is_udp             <= 0;
+
+         is_ACK  <= 0;
+        is_RST  <= 0;
+        is_SYN  <= 0;
+        is_FIN  <= 0;
       end
 
       else begin
@@ -313,7 +516,8 @@
                               flow_entry[`OPENFLOW_ENTRY_TRANSP_DST_POS +  7:`OPENFLOW_ENTRY_TRANSP_DST_POS]     <= in_data[7:0];
                            end // if (ip_hdr_len == 6).  if(ip_hder_len ==4), nothing to do.
                         end // if ((is_tcp_udp || is_icmp) && ip_hdr_len >= 4)
-                        if(is_tcp && (ip_hdr_len == 5 || ip_hdr_len == 4)) begin
+                        // modified by chenhx
+                        if(is_tcp_udp && (ip_hdr_len == 5 || ip_hdr_len == 4)) begin
                            counter <= TRANSP_SN_ACK;
                         end
                         else if(!(is_tcp_udp || is_icmp) || ((is_tcp_udp || is_icmp) && (ip_hdr_len == 5 || ip_hdr_len == 4))) begin
@@ -342,6 +546,12 @@
 							is_SYN	<= in_data[33];
 							is_FIN	<= in_data[32];
 						end
+            else begin
+              is_ACK  <= 0;
+              is_RST  <= 0;
+              is_SYN  <= 0;
+              is_FIN  <= 0;
+            end
 						flow_entry_vld    <= 1'b1;
 						/* check for eop */
 						if(in_ctrl != 0) begin

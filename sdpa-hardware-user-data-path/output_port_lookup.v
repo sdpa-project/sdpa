@@ -61,9 +61,9 @@
       parameter SRAM_ADDR_WIDTH = 19,
       parameter CPU_QUEUE_NUM = 0,
       parameter OPENFLOW_LOOKUP_REG_ADDR_WIDTH = 6,
-      parameter OPENFLOW_LOOKUP_BLOCK_ADDR = 13'h9,
+      parameter OPENFLOW_LOOKUP_BLOCK_ADDR = `REG_LOOKUP_BLOCK_ADDR,
       parameter OPENFLOW_WILDCARD_LOOKUP_REG_ADDR_WIDTH = 10,
-      parameter OPENFLOW_WILDCARD_LOOKUP_BLOCK_ADDR = 13'h1
+      parameter OPENFLOW_WILDCARD_LOOKUP_BLOCK_ADDR = `OPENFLOW_WILDCARD_LOOKUP_BLOCK_ADDR
    )
 
    (// --- data path interface
@@ -107,70 +107,68 @@
 
    //------------------------ Wires/Regs -----------------------------
    // size is the action + input port
-   wire [`OPENFLOW_ACTION_WIDTH-1:0]                          exact_data;
-   wire [`OPENFLOW_ACTION_WIDTH-1:0]                          wildcard_data;
+    wire [`OPENFLOW_ACTION_WIDTH-1:0]                          wildcard_data;
 
-   wire [CTRL_WIDTH-1:0]                                      in_fifo_ctrl;
-   wire [DATA_WIDTH-1:0]                                      in_fifo_data;
-   
-   //Add for FW
-   // --- Interface between header_parser and wildcard_match
-   wire                                       is_tcp_hp_wm;
-   wire                                       is_ACK_hp_wm;
-   wire                                       is_RST_hp_wm;
-   wire                                       is_SYN_hp_wm;
-   wire                                       is_FIN_hp_wm;
-   wire                                      is_udp_hp_wm;
-   wire [15:0]                               query_id_hp_wm;
-   // -- Interface between wildcard_match and state_lookup
-   wire                                       is_tcp_wm_sl;
-   wire                                       is_ACK_wm_sl;
-   wire                                       is_RST_wm_sl;
-   wire                                       is_SYN_wm_sl;
-   wire                                       is_FIN_wm_sl;
-   wire                                      is_dns_query;
-   wire                                      is_dns_response;
-   wire [15:0]                               query_id_wm_sl;
-   wire [`STATE_TABLE_ENTRY_WIDTH-1:0]         state_entry;
-   wire                                       state_entry_vld;
-   //wire                                       state_lookup_req;
-   // --- Interface between state_lookup and opl_processsor
-   //wire                                       state_result_fifo_empty;
-   //wire                                       state_lookup_result;
-   //wire                                       state_result_rd_en;
-   wire [`OPENFLOW_ACTION_WIDTH-1:0]         wm_action_out;
-   wire                                      wm_action_fifo_empty;
-   wire                                      wm_action_fifo_rd_en;
-   
-   
-   wire [`OPENFLOW_ENTRY_WIDTH-1:0]                           flow_entry;
-   wire [`OPENFLOW_ENTRY_SRC_PORT_WIDTH-1:0]                  flow_entry_src_port_parsed;
-   wire [`OPENFLOW_ENTRY_SRC_PORT_WIDTH-1:0]                  flow_entry_src_port;
-   wire [PKT_SIZE_WIDTH-1:0]                                  pkt_size;
+    wire [CTRL_WIDTH-1:0]                                      in_fifo_ctrl;
+    wire [DATA_WIDTH-1:0]                                      in_fifo_data;
 
-   reg [31:0]                                                 s_counter;
-   reg [27:0]                                                 ns_counter;
+    //Add for FW
+    // --- Interface between header_parser and wildcard_match
 
-   wire                                                       wildcard_reg_req_out;
-   wire                                                       wildcard_reg_ack_out;
-   wire                                                       wildcard_reg_rd_wr_L_out;
-   wire [`UDP_REG_ADDR_WIDTH-1:0]                             wildcard_reg_addr_out;
-   wire [`CPCI_NF2_DATA_WIDTH-1:0]                            wildcard_reg_data_out;
-   wire [UDP_REG_SRC_WIDTH-1:0]                               wildcard_reg_src_out;
-
-   wire                                                       state_reg_req_out;
-   wire                                                       state_reg_ack_out;
-   wire                                                       state_reg_rd_wr_L_out;
-   wire [`UDP_REG_ADDR_WIDTH-1:0]                             state_reg_addr_out;
-   wire [`CPCI_NF2_DATA_WIDTH-1:0]                            state_reg_data_out;
-   wire [UDP_REG_SRC_WIDTH-1:0]                               state_reg_src_out;
-   
-//   wire [`OPENFLOW_ACTION_WIDTH+`OPENFLOW_ENTRY_SRC_PORT_WIDTH-1:0] result_fifo_din;
-   wire [`OPENFLOW_ACTION_WIDTH+`OPENFLOW_ENTRY_SRC_PORT_WIDTH-1:0] result_fifo_dout;
-
-   wire [NUM_OUTPUT_QUEUES-1:0]                                pkts_dropped;
+      wire [`OPENFLOW_ENTRY_WIDTH-1:0]			    state_entry;
+      wire													            state_entry_vld;
+    //wire													state_lookup_req;
+    // --- Interface between state_lookup and opl_processsor
+    //wire													state_result_fifo_empty;
+    //wire													state_lookup_result;
+    //wire													state_result_rd_en;
+    wire [`OPENFLOW_ACTION_WIDTH-1:0]         wm_action_out;
+    wire                                      wm_action_fifo_empty;
+    wire                                      wm_action_fifo_rd_en;
 
 
+    wire [`OPENFLOW_ENTRY_WIDTH-1:0]                           flow_entry;
+    wire [`OPENFLOW_ENTRY_SRC_PORT_WIDTH-1:0]                  flow_entry_src_port_parsed;
+    wire [`OPENFLOW_ENTRY_SRC_PORT_WIDTH-1:0]                  flow_entry_src_port;
+    wire [PKT_SIZE_WIDTH-1:0]                                  pkt_size;
+
+    reg [31:0]                                                 s_counter;
+    reg [27:0]                                                 ns_counter;
+
+    wire                                                       parser_reg_req_out;
+    wire                                                       parser_reg_ack_out;
+    wire                                                       parser_reg_rd_wr_L_out;
+    wire [`UDP_REG_ADDR_WIDTH-1:0]                             parser_reg_addr_out;
+    wire [`CPCI_NF2_DATA_WIDTH-1:0]                            parser_reg_data_out;
+    wire [UDP_REG_SRC_WIDTH-1:0]                               parser_reg_src_out;
+
+    wire                                                       wildcard_reg_req_out;
+    wire                                                       wildcard_reg_ack_out;
+    wire                                                       wildcard_reg_rd_wr_L_out;
+    wire [`UDP_REG_ADDR_WIDTH-1:0]                             wildcard_reg_addr_out;
+    wire [`CPCI_NF2_DATA_WIDTH-1:0]                            wildcard_reg_data_out;
+    wire [UDP_REG_SRC_WIDTH-1:0]                               wildcard_reg_src_out;
+
+    wire                                                       state_reg_req_out;
+    wire                                                       state_reg_ack_out;
+    wire                                                       state_reg_rd_wr_L_out;
+    wire [`UDP_REG_ADDR_WIDTH-1:0]                             state_reg_addr_out;
+    wire [`CPCI_NF2_DATA_WIDTH-1:0]                            state_reg_data_out;
+    wire [UDP_REG_SRC_WIDTH-1:0]                               state_reg_src_out;
+
+    //   wire [`OPENFLOW_ACTION_WIDTH+`OPENFLOW_ENTRY_SRC_PORT_WIDTH-1:0] result_fifo_din;
+    wire [`OPENFLOW_ACTION_WIDTH+`OPENFLOW_ENTRY_SRC_PORT_WIDTH-1:0] result_fifo_dout;
+
+    wire [NUM_OUTPUT_QUEUES-1:0]                               pkts_dropped;
+
+    // event params
+    wire [`EVENT_PARAM_WIDTH-1:0]   event_param_1;
+    wire [`EVENT_PARAM_WIDTH-1:0]   event_param_2;
+    wire [`EVENT_PARAM_WIDTH-1:0]   event_param_3;
+
+    wire [`EVENT_PARAM_WIDTH-1:0]   wm_event_param_1;
+    wire [`EVENT_PARAM_WIDTH-1:0]   wm_event_param_2;
+    wire [`EVENT_PARAM_WIDTH-1:0]   wm_event_param_3;
    //------------------------- Modules -------------------------------
 
    /* each pkt can have up to:
@@ -202,30 +200,40 @@
        .ADDITIONAL_WORD_BITMASK     (16'hEFFF),  // --- PCP:3bits VID:12bits
        .ADDITIONAL_WORD_CTRL        (`VLAN_CTRL_WORD),
        .ADDITIONAL_WORD_DEFAULT     (16'hFFFF),
-       .FLOW_ENTRY_SIZE             (`OPENFLOW_ENTRY_WIDTH)
+       .FLOW_ENTRY_SIZE             (`OPENFLOW_ENTRY_WIDTH),
+       .TAG                         (`REG_HP_TAG),
+       .PARAM_POS_ADDR              (`REG_HP_PARAM_POS_ADDR)
        )
        header_parser
          ( // --- Interface to the previous stage
            .in_data                   (in_data),
            .in_ctrl                   (in_ctrl),
            .in_wr                     (in_wr),
+           // --- Interface to register bus
+           .reg_req_in                           (reg_req_in),
+           .reg_ack_in                           (reg_ack_in),
+           .reg_rd_wr_L_in                       (reg_rd_wr_L_in),
+           .reg_addr_in                          (reg_addr_in),
+           .reg_data_in                          (reg_data_in),
+           .reg_src_in                           (reg_src_in),
+
+           .reg_req_out                          (parser_reg_req_out),
+           .reg_ack_out                          (parser_reg_ack_out),
+           .reg_rd_wr_L_out                      (parser_reg_rd_wr_L_out),
+           .reg_addr_out                         (parser_reg_addr_out),
+           .reg_data_out                         (parser_reg_data_out),
+           .reg_src_out                          (parser_reg_src_out),
 
            // --- Interface to matchers
            .flow_entry                (flow_entry),
            .flow_entry_src_port       (flow_entry_src_port_parsed),
            .pkt_size                  (pkt_size),
            .flow_entry_vld            (flow_entry_vld),
-         //Interface to wildcard_match
-         
-         .is_tcp                  (is_tcp_hp_wm),
-         .is_ACK                  (is_ACK_hp_wm),
-         .is_RST                  (is_RST_hp_wm),
-         .is_SYN                  (is_SYN_hp_wm),
-         .is_FIN                  (is_FIN_hp_wm),
-         
-         .is_udp                 (is_udp_hp_wm),
-         .query_id               (query_id_hp_wm),
 
+            // --- Interface to APP Event parameters
+            .event_param_1(event_param_1),
+            .event_param_2(event_param_2),
+            .event_param_3(event_param_3),
            // --- Misc
            .reset                     (reset),
            .clk                       (clk));
@@ -242,31 +250,22 @@
          .flow_entry_vld                       (flow_entry_vld),
          .wildcard_match_rdy                   (wildcard_match_rdy),
          .pkt_size                             (pkt_size),            // size 12
-      // --- Interface to header_parser
-       .is_tcp_in                  (is_tcp_hp_wm),
-       .is_ACK_in                  (is_ACK_hp_wm),
-       .is_RST_in                  (is_RST_hp_wm),
-       .is_SYN_in                  (is_SYN_hp_wm),
-       .is_FIN_in                  (is_FIN_hp_wm),
-       .is_udp_in                (is_udp_hp_wm),
-       .query_id_in              (query_id_hp_wm),
-      // --- Interface to state_processor
-      .is_tcp                     (is_tcp_wm_sl),
-      .is_ACK                     (is_ACK_wm_sl),
-      .is_RST                     (is_RST_wm_sl),
-      .is_SYN                     (is_SYN_wm_sl),
-      .is_FIN                     (is_FIN_wm_sl),
+
+         // --- event parameters
+          .event_param_in_1(event_param_1),
+          .event_param_in_2(event_param_2),
+          .event_param_in_3(event_param_3),
+
+          .event_param_out_1(wm_event_param_1),
+          .event_param_out_2(wm_event_param_2),
+          .event_param_out_3(wm_event_param_3),
       
-      .is_dns_query              (is_dns_query),
-      .is_dns_response           (is_dns_response),
-      .query_id                  (query_id_wm_sl),
-      
-      .state_entry               (state_entry),
-      .state_entry_vld            (state_entry_vld),
-      .action_out                (wm_action_out),
-      //.action_fifo_empty         (wm_action_fifo_empty),      
-      //.action_fifo_rd_en         (wm_action_fifo_rd_en),   
-      .flow_entry_src_port       (flow_entry_src_port),
+	        .flow_entry_out					(state_entry),
+    		//.state_entry_vld				(state_entry_vld),
+          .action_out                (wm_action_out),
+          .action_fifo_empty         (wm_action_fifo_empty),      
+          .action_fifo_rd_en         (wm_action_fifo_rd_en),   
+          .flow_entry_src_port       (flow_entry_src_port),
          // --- Interface to arbiter
          .wildcard_hit                         (wildcard_hit),
          .wildcard_miss                        (wildcard_miss),
@@ -276,12 +275,12 @@
          .wildcard_loses                       (wildcard_loses),
 
          // --- Interface to register bus
-         .reg_req_in                           (reg_req_in),
-         .reg_ack_in                           (reg_ack_in),
-         .reg_rd_wr_L_in                       (reg_rd_wr_L_in),
-         .reg_addr_in                          (reg_addr_in),
-         .reg_data_in                          (reg_data_in),
-         .reg_src_in                           (reg_src_in),
+         .reg_req_in                           (parser_reg_req_out),
+         .reg_ack_in                           (parser_reg_ack_out),
+         .reg_rd_wr_L_in                       (parser_reg_rd_wr_L_out),
+         .reg_addr_in                          (parser_reg_addr_out),
+         .reg_data_in                          (parser_reg_data_out),
+         .reg_src_in                           (parser_reg_src_out),
 
          .reg_req_out                          (wildcard_reg_req_out),
          .reg_ack_out                          (wildcard_reg_ack_out),
@@ -297,53 +296,40 @@
 
          .clk                                  (clk),
          .reset                                (reset));
-   
-//   small_fifo
-//     #(.WIDTH(`OPENFLOW_ACTION_WIDTH+`OPENFLOW_ENTRY_SRC_PORT_WIDTH),
-//       .MAX_DEPTH_BITS(3))
-//      action_fifo
-//        (.din           ({flow_entry_src_port,wildcard_data}), // Data in
-//         .wr_en         (wildcard_data_vld),   // Write enable
-//         .rd_en         (result_fifo_rd_en),   // Read the next word
-//         .dout          (result_fifo_dout),
-//         .full          (),
-//         .nearly_full   (result_fifo_nearly_full),
-//         .empty         (result_fifo_empty),
-//         .reset         (reset),
-//         .clk           (clk)
-//         );
-   
-   state_processor
-      #(
-      .PKT_SIZE_WIDTH(PKT_SIZE_WIDTH),
-      .STATE_TABLE_LOOKUP_REG_ADDR_WIDTH(`STATE_TABLE_LOOKUP_REG_ADDR_WIDTH),
-    .STATE_TABLE_LOOKUP_1_BLOCK_ADDR(`STATE_TABLE_LOOKUP_1_BLOCK_ADDR),
-    .STATE_TABLE_LOOKUP_2_BLOCK_ADDR(`STATE_TABLE_LOOKUP_2_BLOCK_ADDR),
-    .STATE_TABLE_LOOKUP_3_BLOCK_ADDR(`STATE_TABLE_LOOKUP_3_BLOCK_ADDR)
-      )
-      state_processor
-      (// --- Interface from wildcard_match
-      .is_ACK                     (is_ACK_wm_sl),
-      .is_RST                     (is_RST_wm_sl),
-      .is_SYN                     (is_SYN_wm_sl),
-      .is_FIN                     (is_FIN_wm_sl),
-      .is_tcp                     (is_tcp_wm_sl),
-      .is_dns_query              (is_dns_query),
-      .is_dns_response           (is_dns_response),
-      .query_id                  (query_id_wm_sl),
-      .state_entry               (state_entry),
-      .state_entry_vld            (state_entry_vld),
-      .flow_entry_src_port_in    (flow_entry_src_port),
-      .action_in                 (wm_action_out),
-      //.action_fifo_empty         (wm_action_fifo_empty),
-      //.action_fifo_rd_en         (wm_action_fifo_rd_en),
-      
-      // --- Interface to opl_processor
-      .result_fifo_dout          (result_fifo_dout),
-      .result_fifo_rd_en         (result_fifo_rd_en),
-      .result_fifo_empty         (result_fifo_empty),
-      
-      // --- Interface to registers
+
+	state_processor
+    	#(
+    	.PKT_SIZE_WIDTH(PKT_SIZE_WIDTH),
+    	.STATE_TABLE_LOOKUP_REG_ADDR_WIDTH(`STATE_TABLE_LOOKUP_REG_ADDR_WIDTH),
+
+      .APP1_ST_TAG                      (`REG_APP1_ST_TAG),
+      .APP1_STT_TAG                     (`REG_APP1_STT_TAG),
+      .APP1_AT_TAG                      (`REG_APP1_AT_TAG),
+      .APP2_ST_TAG                      (`REG_APP2_ST_TAG),
+      .APP2_STT_TAG                     (`REG_APP2_STT_TAG),
+      .APP2_AT_TAG                      (`REG_APP2_AT_TAG),
+      .APP3_ST_TAG                      (`REG_APP3_ST_TAG),
+      .APP3_STT_TAG                     (`REG_APP3_STT_TAG),
+      .APP3_AT_TAG                      (`REG_APP3_AT_TAG)
+    	)
+    	state_processor
+    	(// --- Interface from wildcard_match
+          .state_entry			         (state_entry),
+          .flow_entry_src_port_in    (flow_entry_src_port),
+          .action_in                 (wm_action_out),
+          .action_fifo_empty         (wm_action_fifo_empty),
+          .action_fifo_rd_en         (wm_action_fifo_rd_en),
+
+          .event_param_in_1          (wm_event_param_1),
+          .event_param_in_2          (wm_event_param_2),
+          .event_param_in_3          (wm_event_param_3),
+          
+    		// --- Interface to opl_processor
+          .result_fifo_dout          (result_fifo_dout),
+          .result_fifo_rd_en         (result_fifo_rd_en),
+          .result_fifo_empty         (result_fifo_empty),
+    		
+    		// --- Interface to registers
          .reg_req_in                          (wildcard_reg_req_out),
          .reg_ack_in                          (wildcard_reg_ack_out),
          .reg_rd_wr_L_in                      (wildcard_reg_rd_wr_L_out),
@@ -357,25 +343,25 @@
          .reg_addr_out                         (state_reg_addr_out),
          .reg_data_out                         (state_reg_data_out),
          .reg_src_out                          (state_reg_src_out),
-       
-      // --- Interface to Watchdog Timer
-      .table_flush               (table_flush),
 
-      // --- Misc
-      .reset                     (reset),
-      .clk                     (clk)
-      );
+    		// --- Interface to Watchdog Timer
+    		.table_flush					(table_flush),
 
+    		// --- Misc
+    		.reset							(reset),
+    		.clk							(clk)
+    		);
+    	
    opl_processor
      opl_processor
        (// --- interface to results fifo
         .result_fifo_dout    (result_fifo_dout),
         .result_fifo_rd_en   (result_fifo_rd_en),
         .result_fifo_empty   (result_fifo_empty),
-         // --- Interface to state_lookup
-         //.state_lookup_result   (state_lookup_result),
-         //.state_result_fifo_empty (state_result_fifo_empty),
-         //.state_result_rd_en      (state_result_rd_en),
+			// --- Interface to state_lookup
+			//.state_lookup_result	(state_lookup_result),
+			//.state_result_fifo_empty (state_result_fifo_empty),
+			//.state_result_rd_en		(state_result_rd_en),
 
         // --- interface to input fifo
         .in_fifo_ctrl        (in_fifo_ctrl),

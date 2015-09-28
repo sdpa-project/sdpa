@@ -54,29 +54,22 @@
     output                                 wildcard_match_rdy,
     input [`OPENFLOW_ENTRY_SRC_PORT_WIDTH-1:0] flow_entry_src_port_parsed,
 	
-	//Add for FW
-	input									is_ACK_in,
-	input									is_RST_in,
-	input									is_SYN_in,
-	input 								is_FIN_in,
-	input									is_tcp_in,
-   input                         is_udp_in,
-   input      [15:0]                   query_id_in,
-	/*Interface to state table lookup*/
-	output 									is_ACK,
-	output 									is_RST,
-	output 									is_SYN,
-	output 									is_FIN,
-	output									is_tcp,
-   output                           is_dns_query,
-   output                           is_dns_response,
-   output     [15:0]                      query_id,
-	output [`STATE_TABLE_ENTRY_WIDTH-1:0]	state_entry,
-   output reg                                state_entry_vld,
+	   // --- Event parameters
+    input [`EVENT_PARAM_WIDTH-1:0]   event_param_in_1,
+    input [`EVENT_PARAM_WIDTH-1:0]   event_param_in_2,
+    input [`EVENT_PARAM_WIDTH-1:0]   event_param_in_3,
+
+    output  [`EVENT_PARAM_WIDTH-1:0]   event_param_out_1,
+    output  [`EVENT_PARAM_WIDTH-1:0]   event_param_out_2,
+    output  [`EVENT_PARAM_WIDTH-1:0]   event_param_out_3,
+
+
+    // --- Interface to state processor
+  	output [`OPENFLOW_ENTRY_WIDTH-1:0]      flow_entry_out,
    output [`OPENFLOW_ENTRY_SRC_PORT_WIDTH-1:0] flow_entry_src_port,   
-   output reg [`OPENFLOW_ACTION_WIDTH-1:0] action_out,
-   //output                              action_fifo_empty,
-   //input                               action_fifo_rd_en,
+   output [`OPENFLOW_ACTION_WIDTH-1:0] action_out,
+   output                              action_fifo_empty,
+   input                               action_fifo_rd_en,
     // --- Interface to arbiter
     output                                 wildcard_hit,
     output                                 wildcard_miss,
@@ -336,24 +329,33 @@
 
         // --- modified by chenhx
    fallthrough_small_fifo
-    #(.WIDTH(23+`STATE_TABLE_ENTRY_WIDTH),
+    #(.WIDTH(`EVENT_PARAM_WIDTH+`EVENT_PARAM_WIDTH+`EVENT_PARAM_WIDTH+`OPENFLOW_ENTRY_WIDTH),
 	  .MAX_DEPTH_BITS(3))
 	  state_entry_fifo
-	    (.din           ({is_tcp_in,is_ACK_in,is_RST_in,is_SYN_in,is_FIN_in,
-                           is_udp_in & (flow_entry[`OPENFLOW_ENTRY_TRANSP_DST_POS + 15:`OPENFLOW_ENTRY_TRANSP_DST_POS]==16'h0035),
-                           is_udp_in & (flow_entry[`OPENFLOW_ENTRY_TRANSP_SRC_POS + 15:`OPENFLOW_ENTRY_TRANSP_SRC_POS]==16'h0035),
-                           query_id_in,
-                           flow_entry[`STATE_TABLE_ENTRY_WIDTH-1:0]}),     // Data in
+	    (.din           ({event_param_in_1,event_param_in_2,event_param_in_3,flow_entry}),     // Data in
          .wr_en         (flow_entry_vld),                 // Write enable
-         .rd_en         (wildcard_data_vld),              // Read the next word
-         .dout          ({is_tcp,is_ACK,is_RST,is_SYN,is_FIN,is_dns_query,is_dns_response,query_id,state_entry}),
+         .rd_en         (action_fifo_rd_en),              // Read the next word
+         .dout          ({event_param_out_1,event_param_out_2,event_param_out_3,flow_entry_out}),
          .full          (),
          .nearly_full   (),
          .empty         (),
          .reset         (reset),
          .clk           (clk)
    );
-
+   fallthrough_small_fifo
+    #(.WIDTH(`OPENFLOW_ACTION_WIDTH),
+	  .MAX_DEPTH_BITS(3))
+	  action_fifo
+	    (.din           (wildcard_data),     // Data in
+         .wr_en         (wildcard_data_vld),                 // Write enable
+         .rd_en         (action_fifo_rd_en),              // Read the next word
+         .dout          (action_out),
+         .full          (),
+         .nearly_full   (),
+         .empty         (action_fifo_empty),
+         .reset         (reset),
+         .clk           (clk)
+   );
    //-------------------------- Logic --------------------------------
    assign wildcard_miss = wildcard_data_vld & !wildcard_hit;
    assign fifo_rd_en = wildcard_wins || wildcard_loses;
@@ -374,11 +376,10 @@
    
 	//Add for FW
 	
-	always @(*) begin
-		state_entry_vld = wildcard_data_vld;
-		//state_lookup_req = (wildcard_data[`OPENFLOW_NF2_ACTION_FLAG_POS +: `OPENFLOW_NF2_ACTION_FLAG_WIDTH] & `NF2_OFPAT_GO_TO_FP);
-      action_out = wildcard_data;
-	end
+	//always @(*) begin
+	//	state_entry_vld = wildcard_data_vld;
+	//	state_lookup_req = (wildcard_data[`OPENFLOW_NF2_ACTION_FLAG_POS +: `OPENFLOW_NF2_ACTION_FLAG_WIDTH] & `NF2_OFPAT_GO_TO_FP);
+	//end
 	/*
 	always @(posedge clk) begin
 		if(wildcard_data_vld)begin
